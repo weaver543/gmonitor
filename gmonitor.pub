@@ -1,0 +1,9 @@
+# testing
+username=myusername
+encryptedpassword=
+#cleartextpassword=
+balloonmode=0
+proxy=1
+filter=groupon.com,halfoffdeals.com,facebook people you may know,interesting people on
+platform=windows
+iconset=1
