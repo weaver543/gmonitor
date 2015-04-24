@@ -1,10 +1,8 @@
 import java.util.*;
 
-//import java.io.*;
 import javax.mail.*;
 import javax.mail.event.*;
 
-//import javax.activation.*;
 import com.sun.mail.imap.*;
 
 import java.awt.AWTException;
@@ -22,7 +20,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
-import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 
@@ -36,21 +33,38 @@ import javax.crypto.*;
 import javax.crypto.spec.*;
 import javax.xml.bind.DatatypeConverter;
 
-// play sound http://stackoverflow.com/questions/2416935/how-to-play-wav-files-with-java
+import java.io.File;
+//import java.awt.event.KeyEvent;
+//import java.io.*;
 
-/* from http://shoudaw.host22.com/?p=269
-http://webcache.googleusercontent.com/search?q=cache:8rNvzKybnMMJ:shoudaw.host22.com/%3Fp%3D269&client=firefox-a&hl=en&gl=us&strip=1
+/* to exporting jar from eclipse,  
+ * "runnable jar file", filename: gmonitor.jar
+  "copy required libraries into sub-folder next to generated jar" 
+  after export 
+    1) you can delete the "gmonitor_lib" directory that contains mail47.jar  
+    2) open jar in 7zip and modify as follows:
+      1) remove non gmonitor classes from root directory
+      2) need to update META-INF\MANIFEST.MF to remove "gmonitor_lib/" leaving the line as "Class-Path: . mail-1.4.7.jar"
+
+
+  play sound http://stackoverflow.com/questions/2416935/how-to-play-wav-files-with-java
+
+  original code forked from http://shoudaw.host22.com/?p=269
+
 */
 
    
 
 public class gmonitor {
-	private static final String BUILDDATE="7/2/2014";
+	private static String CONFIGFILE="gmonitor.ini";
+	public static final String CHECKFILE = "c:\\t\\sarta.mail"; 
+	private static final String BUILDDATE="4/24/2015";
 	private static final int MAXHISTORY = 45;
 	private static StringBuilder history;
 	private static boolean balloonmode = true;
 	private static boolean alertsEnabled = true;
 	private static TrayIcon trayIcon;
+	private static String iconset = ""; // blank or "2" for alternate icons 
 	private static String username = "";
 	private static String cleartextpw = "";
 	private static String host = "imap.gmail.com";
@@ -69,6 +83,7 @@ public class gmonitor {
 	private static final String b64key = "itZbdUHhGg==";
 	private static final String CHARSET = "UTF-8";
 	private static boolean showConAlerts = false;
+	private static boolean skipconfigfile = false;
 	
 	private static Image newmailicon; // = Toolkit.getDefaultToolkit().getImage("C:/t/newmailicon.jpg");
 	private static Image nomailicon;
@@ -76,9 +91,28 @@ public class gmonitor {
 //   public static String wavfilename1 = "/resources/notify2.wav";
 
 	public static void main(String argv[])  {
+		
+		if (argv.length > 0) {
+			// for now only 1 arg will be either the config filename, "skipconfigfile", or "help"
+			if (argv[0].matches("help")) {
+				System.out.println("configfile params:  username, encryptedpassword, cleartextpassword, balloonmode");
+				System.out.println("proxy(=proxyport), filter(=str1,str2), iconset=2");
+				System.out.println("at command line: skipconfigfile, configfilename");
+				System.exit(0);
+			} else if (argv[0].matches("skipconfigfile")) {
+				skipconfigfile = true;
+			} else {
+				CONFIGFILE=argv[0];
+			}
+				
+		}
+			
 		try {	
-	      gmonitor mymonitor = new gmonitor();
-	      mymonitor.Run();
+//	      gmonitor mymonitor = new gmonitor();
+	      new clearIconWatchdog().start();
+	      new gmonitor().Run();
+//	      mymonitor.Run();
+	      
 		} catch (Exception e) {
 			javax.swing.JOptionPane.showMessageDialog(null, e.getStackTrace() );
 		}
@@ -90,16 +124,26 @@ public class gmonitor {
 		Folder folder;
 		connectionStatus = "Initializing...";
 		history = new StringBuilder();
-
+//skipconfigfile=true;
+		if (!skipconfigfile) read_ini();
+		
 		try {
-			newmailicon = Toolkit.getDefaultToolkit().getImage(this.getClass().getResource("resources/newmailicon.jpg"));
-			nomailicon = Toolkit.getDefaultToolkit().getImage(this.getClass().getResource("resources/nomailicon.jpg"));
-			disconnectedicon = Toolkit.getDefaultToolkit().getImage(this.getClass().getResource("resources/disconnected.jpg"));
+
+			if (iconset=="2") {
+				newmailicon = Toolkit.getDefaultToolkit().getImage(this.getClass().getResource("resources/newmailicon2.jpg"));
+				nomailicon = Toolkit.getDefaultToolkit().getImage(this.getClass().getResource("resources/nomailicon2.jpg"));
+				disconnectedicon = Toolkit.getDefaultToolkit().getImage(this.getClass().getResource("resources/disconnected2.jpg"));
+			} else {
+				newmailicon = Toolkit.getDefaultToolkit().getImage(this.getClass().getResource("resources/newmailicon.jpg"));
+				nomailicon = Toolkit.getDefaultToolkit().getImage(this.getClass().getResource("resources/nomailicon.jpg"));
+				disconnectedicon = Toolkit.getDefaultToolkit().getImage(this.getClass().getResource("resources/disconnected.jpg"));
+			}
+			
 		} catch (Exception e) {
-			System.out.println("couldnt load nomailicon");         
+			System.out.println("couldnt load icon: " + e.getMessage()); 
+			System.exit(0);
 		}
 
-		read_ini();
 		
 		// build right click popup menu
 		ActionListener actionListener = new PopupActionListener();
@@ -125,14 +169,17 @@ public class gmonitor {
 //		item4.addActionListener(actionListener);
 //		popMenu.add(item6);
 
-    CheckboxMenuItem cbEnabled = new CheckboxMenuItem("Enabled");
-    popMenu.add(cbEnabled);
+		CheckboxMenuItem cbEnabled = new CheckboxMenuItem("Enabled");
+		popMenu.add(cbEnabled);
+		cbEnabled.setState(alertsEnabled);
+			
+		CheckboxMenuItem cbShowConAlerts = new CheckboxMenuItem("Show connection messages");
+		popMenu.add(cbShowConAlerts);
+		cbShowConAlerts.setState(showConAlerts);
 		
-    CheckboxMenuItem cbShowConAlerts = new CheckboxMenuItem("Show connection messages");
-    popMenu.add(cbShowConAlerts);
-		
-    CheckboxMenuItem cbBalloonmode = new CheckboxMenuItem("Balloon style alerts");
-    popMenu.add(cbBalloonmode);
+		CheckboxMenuItem cbBalloonmode = new CheckboxMenuItem("Balloon style alerts");
+		popMenu.add(cbBalloonmode);
+		cbBalloonmode.setState(balloonmode );
 		
 		MenuItem item3 = new MenuItem("Exit");
 		item3.addActionListener(actionListener);
@@ -146,36 +193,36 @@ public class gmonitor {
 		
 		cbShowConAlerts.addItemListener(new ItemListener() {
 			public void itemStateChanged(ItemEvent e) {
-          if (e.getStateChange() == ItemEvent.SELECTED){
-						showConAlerts = true;
-          } else {
-						showConAlerts = false;
-          }
-      }
-  	});
+	          if (e.getStateChange() == ItemEvent.SELECTED){
+							showConAlerts = true;
+	          } else {
+							showConAlerts = false;
+	          }
+	      }
+	  	});
 		
 		cbBalloonmode.addItemListener(new ItemListener() {
 			public void itemStateChanged(ItemEvent e) {
-        if (e.getStateChange() == ItemEvent.SELECTED){
-						balloonmode = true;
-          } else {
-          	balloonmode = false;
-          }
-      }
-  	});
+	        if (e.getStateChange() == ItemEvent.SELECTED){
+	        	balloonmode = true;
+	          } else {
+	          	balloonmode = false;
+	          }
+	      }
+	  	});
 		
 		cbEnabled.addItemListener(new ItemListener() {
 			public void itemStateChanged(ItemEvent e) {
-        if (e.getStateChange() == ItemEvent.SELECTED){
-						alertsEnabled = true;
-          } else {
-          	alertsEnabled = false;
-          }
-      }
-  	});
+		        if (e.getStateChange() == ItemEvent.SELECTED){
+					alertsEnabled = true;
+		          } else {
+		          	alertsEnabled = false;
+		          }
+	      }
+	  	});
 		
 		// get login if needed
-		if (username.isEmpty() || cleartextpw.isEmpty() ) {
+		if ( username.isEmpty() || cleartextpw.isEmpty() ) {
 			
 			JTextField loginField = new JTextField(10);
 			  
@@ -200,9 +247,10 @@ public class gmonitor {
 
 			if (username.isEmpty() || cleartextpw.isEmpty() ) {
 				alert("both username and password are required...exiting");
-            	Thread.sleep(60 * 1000);
+				Thread.sleep(60 * 1000);
 				System.exit(0);      
 			}
+//System.exit(0);      
 			
 		} else {
 			alert("logging in as " + username);
@@ -448,7 +496,7 @@ public class gmonitor {
 
 	   try {
 			
-			BufferedReader br = new BufferedReader(new FileReader("gmonitor.ini"));
+			BufferedReader br = new BufferedReader(new FileReader(CONFIGFILE));
 			String line;
 			while ((line = br.readLine()) != null) {
 
@@ -482,6 +530,10 @@ public class gmonitor {
 
 			if ( param.containsKey("username") ) {
 				username = param.get("username");
+			}
+
+			if ( param.containsKey("iconset") ) {
+				iconset = param.get("iconset");
 			}
 			
 			if ( param.containsKey("proxy") ) {
@@ -542,6 +594,12 @@ public class gmonitor {
 	    
 	    return new String(newPlainText, CHARSET); 
    }
+   
+   public static void clearMailflag()  {
+System.out.println("clearing flag");	   
+	   gmonitor.trayIcon.setImage(gmonitor.nomailicon);
+   }
+
    
    private static String encodepw(String cleartextpw) throws Exception {
 
@@ -638,5 +696,24 @@ public class gmonitor {
           gmonitor.trayIcon.setImage(gmonitor.nomailicon);
         }  
       }
+    }
+}
+
+// scan for CHECKFILE and when found, delete it and clear mail indicator 
+class clearIconWatchdog extends Thread {
+    public clearIconWatchdog() {
+    	super();
+    }
+    public void run() {
+	    File fname = new File(gmonitor.CHECKFILE);
+
+	    while (true) {
+		    while( !fname.exists() ){
+		    	System.out.println("doesnt exist...sleeping");
+			    try { Thread.sleep(4000); } catch (InterruptedException e) {}		    	
+		    }
+		    gmonitor.clearMailflag();
+		    fname.delete();
+	    }
     }
 }
